@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Pool Control",
+        "description": "Log in with the e-mail and password you use on owner.smartpoolcontrol.eu.",
+        "data": {
+          "username": "E-mail",
+          "password": "Password",
+          "base_url": "Portal URL"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid e-mail or password.",
+      "cannot_connect": "Could not connect to the portal.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This pool is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ph": { "name": "pH" },
+      "ph_target": { "name": "pH target" },
+      "rx": { "name": "Redox (Rx)" },
+      "rx_target": { "name": "Redox target" },
+      "water_temperature": { "name": "Water temperature" },
+      "outside_temperature": { "name": "Outside temperature" },
+      "solar_temperature": { "name": "Solar temperature" },
+      "pump_speed": {
+        "name": "Pump speed",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "maximum": "Maximum"
+        }
+      },
+      "cover_state": {
+        "name": "Cover",
+        "state": { "open": "Open", "closed": "Closed" }
+      }
+    },
+    "binary_sensor": {
+      "heating": { "name": "Heating" },
+      "online": { "name": "Online" }
+    },
+    "number": {
+      "ph_target": { "name": "pH target" },
+      "rx_target": { "name": "Redox target" },
+      "water_temperature_target": { "name": "Water temperature target" }
+    },
+    "switch": {
+      "lighting": { "name": "Lighting" },
+      "frost_protection": { "name": "Frost protection" },
+      "pump_force_on": { "name": "Pump force on" }
+    },
+    "select": {
+      "pump_speed": { "name": "Pump speed (schedule 1)" },
+      "lighting_mode": { "name": "Lighting program" }
+    },
+    "cover": {
+      "cover": { "name": "Pool cover" }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "domain": "smartpoolcontrol",
+  "name": "Smart Pool Control",
+  "codeowners": ["@sevenants"],
+  "config_flow": true,
+  "documentation": "https://github.com/sevenants/ha-smartpoolcontrol",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/sevenants/ha-smartpoolcontrol/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

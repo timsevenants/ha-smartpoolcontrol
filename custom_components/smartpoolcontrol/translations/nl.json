@@ -1,0 +1,69 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Pool Control",
+        "description": "Log in met het e-mailadres en wachtwoord van owner.smartpoolcontrol.eu.",
+        "data": {
+          "username": "E-mail",
+          "password": "Wachtwoord",
+          "base_url": "Portal-URL"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ongeldig e-mailadres of wachtwoord.",
+      "cannot_connect": "Kon geen verbinding maken met de portal.",
+      "unknown": "Onverwachte fout."
+    },
+    "abort": {
+      "already_configured": "Dit zwembad is al geconfigureerd."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "ph": { "name": "pH" },
+      "ph_target": { "name": "pH-doel" },
+      "rx": { "name": "Redox (Rx)" },
+      "rx_target": { "name": "Redox-doel" },
+      "water_temperature": { "name": "Watertemperatuur" },
+      "outside_temperature": { "name": "Buitentemperatuur" },
+      "solar_temperature": { "name": "Solartemperatuur" },
+      "pump_speed": {
+        "name": "Pompsnelheid",
+        "state": {
+          "off": "Uit",
+          "low": "Laag",
+          "medium": "Medium",
+          "high": "Hoog",
+          "maximum": "Maximum"
+        }
+      },
+      "cover_state": {
+        "name": "Afdekking",
+        "state": { "open": "Open", "closed": "Dicht" }
+      }
+    },
+    "binary_sensor": {
+      "heating": { "name": "Verwarming" },
+      "online": { "name": "Online" }
+    },
+    "number": {
+      "ph_target": { "name": "pH-doel" },
+      "rx_target": { "name": "Redox-doel" },
+      "water_temperature_target": { "name": "Watertemperatuur-doel" }
+    },
+    "switch": {
+      "lighting": { "name": "Verlichting" },
+      "frost_protection": { "name": "Vorstbeveiliging" },
+      "pump_force_on": { "name": "Pomp geforceerd aan" }
+    },
+    "select": {
+      "pump_speed": { "name": "Pompsnelheid (schema 1)" },
+      "lighting_mode": { "name": "Verlichtingsprogramma" }
+    },
+    "cover": {
+      "cover": { "name": "Zwembadafdekking" }
+    }
+  }
+}
