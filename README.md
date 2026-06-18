@@ -41,7 +41,7 @@ Supplies / Smart Pool Control.
 
 ### HACS (custom repository)
 1. HACS → ⋮ → *Custom repositories*.
-2. Add `https://github.com/sevenants/ha-smartpoolcontrol`, category *Integration*.
+2. Add `https://github.com/timsevenants/ha-smartpoolcontrol`, category *Integration*.
 3. Install **Smart Pool Control**, then restart Home Assistant.
 
 ### Manual
