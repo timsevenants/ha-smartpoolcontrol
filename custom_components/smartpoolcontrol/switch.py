@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SmartPoolConfigEntry
 from .api import PoolStatus, SmartPoolControlClient
-from .entity import SmartPoolEntity
+from .entity import SmartPoolControllableEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,18 +37,20 @@ SWITCHES: tuple[SmartPoolSwitchDescription, ...] = (
         device_class=SwitchDeviceClass.SWITCH,
         icon="mdi:lightbulb",
         value_fn=lambda s: s.lighting_on,
-        set_fn=lambda c, on: c.async_toggle_lighting(),
+        set_fn=lambda c, on: c.async_set_lighting(on),
     ),
     SmartPoolSwitchDescription(
         key="frost_protection",
         translation_key="frost_protection",
         icon="mdi:snowflake-alert",
+        value_fn=lambda s: s.frost_protection,
         set_fn=lambda c, on: c.async_set_frost_protection(on),
     ),
     SmartPoolSwitchDescription(
         key="pump_force_on",
         translation_key="pump_force_on",
         icon="mdi:pump",
+        value_fn=lambda s: s.pump_force,
         set_fn=lambda c, on: c.async_set_pump_force(on),
     ),
 )
@@ -66,7 +68,7 @@ async def async_setup_entry(
     )
 
 
-class SmartPoolSwitch(SmartPoolEntity, SwitchEntity):
+class SmartPoolSwitch(SmartPoolControllableEntity, SwitchEntity):
     """A togglable feature on the portal."""
 
     entity_description: SmartPoolSwitchDescription
@@ -90,6 +92,7 @@ class SmartPoolSwitch(SmartPoolEntity, SwitchEntity):
         await self._set(False)
 
     async def _set(self, on: bool) -> None:
+        self._check_online()
         desc = self.entity_description
         # The lighting endpoint only toggles, so avoid toggling when already
         # in the requested state.

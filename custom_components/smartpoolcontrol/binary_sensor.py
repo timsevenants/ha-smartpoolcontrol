@@ -27,17 +27,17 @@ class SmartPoolBinaryDescription(BinarySensorEntityDescription):
 
 BINARY_SENSORS: tuple[SmartPoolBinaryDescription, ...] = (
     SmartPoolBinaryDescription(
-        key="heating",
-        translation_key="heating",
-        device_class=BinarySensorDeviceClass.HEAT,
-        icon="mdi:radiator",
-        value_fn=lambda s: s.heating_on,
-    ),
-    SmartPoolBinaryDescription(
         key="online",
         translation_key="online",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         value_fn=lambda s: s.online,
+    ),
+    SmartPoolBinaryDescription(
+        key="pump_running",
+        translation_key="pump_running",
+        device_class=BinarySensorDeviceClass.RUNNING,
+        icon="mdi:pump",
+        value_fn=lambda s: s.pump_running,
     ),
 )
 

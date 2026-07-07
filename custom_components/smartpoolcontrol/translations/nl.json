@@ -2,18 +2,25 @@
   "config": {
     "step": {
       "user": {
-        "title": "Smart Pool Control",
-        "description": "Log in met het e-mailadres en wachtwoord van owner.smartpoolcontrol.eu.",
+        "title": "Smart Pool Connect",
+        "description": "Voer een API-sleutel in uit het Smart Pool Connect-portaal (smartpoolconnect.eu → API Keys). Sleutels beginnen met `spc_`.",
         "data": {
-          "username": "E-mail",
-          "password": "Wachtwoord",
-          "base_url": "Portal-URL"
+          "api_key": "API-sleutel",
+          "base_url": "API-URL"
+        }
+      },
+      "select_pool": {
+        "title": "Zwembad kiezen",
+        "description": "Deze API-sleutel geeft toegang tot meerdere zwembaden.",
+        "data": {
+          "pool_id": "Zwembad"
         }
       }
     },
     "error": {
-      "invalid_auth": "Ongeldig e-mailadres of wachtwoord.",
-      "cannot_connect": "Kon geen verbinding maken met de portal.",
+      "invalid_auth": "De API-sleutel werd geweigerd.",
+      "cannot_connect": "Kon geen verbinding maken met de Smart Pool Connect-API.",
+      "no_pools": "Deze API-sleutel heeft geen zwembaden.",
       "unknown": "Onverwachte fout."
     },
     "abort": {
@@ -35,18 +42,14 @@
           "off": "Uit",
           "low": "Laag",
           "medium": "Medium",
-          "high": "Hoog",
-          "maximum": "Maximum"
+          "high": "Hoog"
         }
       },
-      "cover_state": {
-        "name": "Afdekking",
-        "state": { "open": "Open", "closed": "Dicht" }
-      }
+      "cover_status": { "name": "Afdekking-status (ruw)" }
     },
     "binary_sensor": {
-      "heating": { "name": "Verwarming" },
-      "online": { "name": "Online" }
+      "online": { "name": "Online" },
+      "pump_running": { "name": "Pomp draait" }
     },
     "number": {
       "ph_target": { "name": "pH-doel" },
@@ -56,14 +59,10 @@
     "switch": {
       "lighting": { "name": "Verlichting" },
       "frost_protection": { "name": "Vorstbeveiliging" },
-      "pump_force_on": { "name": "Pomp geforceerd aan" }
+      "pump_force_on": { "name": "Pomp altijd aan" }
     },
     "select": {
-      "pump_speed": { "name": "Pompsnelheid (schema 1)" },
-      "lighting_mode": { "name": "Verlichtingsprogramma" }
-    },
-    "cover": {
-      "cover": { "name": "Zwembadafdekking" }
+      "pump_speed": { "name": "Pompsnelheid" }
     }
   }
 }

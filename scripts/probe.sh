@@ -1,37 +1,33 @@
 #!/usr/bin/env bash
 #
-# probe.sh - inspect the Smart Pool Control portal with plain curl.
+# probe.sh - inspect the Smart Pool Connect REST API with plain curl.
 #
-# Useful for debugging / re-discovering the HTML structure the integration
-# scrapes. It only performs GET requests (it never changes pool state).
+# Read-only: it only performs GET requests and never changes pool state.
 #
 # Usage:
-#   SPC_USER='you@example.com' SPC_PASS='secret' ./scripts/probe.sh
+#   SPC_KEY='spc_xxx' ./scripts/probe.sh            # list pools
+#   SPC_KEY='spc_xxx' ./scripts/probe.sh <pool-id>  # full state + per-module
 #
 set -euo pipefail
 
-BASE="${SPC_BASE:-https://owner.smartpoolcontrol.eu}"
-USER="${SPC_USER:?set SPC_USER}"
-PASS="${SPC_PASS:?set SPC_PASS}"
-JAR="$(mktemp)"
-trap 'rm -f "$JAR"' EXIT
+BASE="${SPC_BASE:-https://api.smartpoolconnect.eu}"
+KEY="${SPC_KEY:?set SPC_KEY (starts with spc_)}"
+PID="${1:-}"
 
-echo "Fetching login page..."
-PAGE=$(curl -s -c "$JAR" "$BASE/login/")
-TOKEN=$(echo "$PAGE" | sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p')
+auth=(-H "X-API-Key: $KEY" -H "Accept: application/json")
 
-echo "Logging in..."
-curl -s -o /dev/null -b "$JAR" -c "$JAR" -e "$BASE/login/" \
-  --data-urlencode "csrfmiddlewaretoken=$TOKEN" \
-  --data-urlencode "username=$USER" \
-  --data-urlencode "password=$PASS" \
-  "$BASE/login/"
+if [ -z "$PID" ]; then
+  echo "== GET /pool =="
+  curl -s "${auth[@]}" "$BASE/pool" | jq '.items[] | {pid, name, status, mac_address}'
+  echo
+  echo "Pass a pool id as the first argument to dump its full state."
+  exit 0
+fi
 
-echo "Discovering pool id..."
-POOL_URL=$(curl -s -o /dev/null -w '%{url_effective}' -L -b "$JAR" "$BASE/")
-POOL_ID=$(echo "$POOL_URL" | sed -n 's#.*/pools/measurements/\([0-9]*\)/.*#\1#p')
-echo "Pool id: $POOL_ID"
+echo "== GET /pool/$PID =="
+curl -s "${auth[@]}" "$BASE/pool/$PID" | jq .
 
-echo "Measurements page (stripped):"
-curl -s -b "$JAR" "$BASE/pools/measurements/$POOL_ID/" \
-  | sed -n 's/<[^>]*>//gp' | grep -vE '^[[:space:]]*$' | head -40
+for m in ph cl filter temperature lighting cover; do
+  echo "== GET /pool/$PID/$m =="
+  curl -s "${auth[@]}" "$BASE/pool/$PID/$m" | jq '{status, config}'
+done

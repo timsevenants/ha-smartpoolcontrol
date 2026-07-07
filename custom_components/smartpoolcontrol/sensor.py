@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -88,16 +88,17 @@ SENSORS: tuple[SmartPoolSensorDescription, ...] = (
         translation_key="pump_speed",
         icon="mdi:pump",
         device_class=SensorDeviceClass.ENUM,
-        options=["off", "low", "medium", "high", "maximum"],
+        options=["off", "low", "medium", "high"],
         value_fn=lambda s: s.pump_speed,
     ),
+    # Raw cover status code; the open/closed mapping is not yet confirmed, so
+    # this is exposed as a diagnostic number until the values are known.
     SmartPoolSensorDescription(
-        key="cover_state",
-        translation_key="cover_state",
+        key="cover_status",
+        translation_key="cover_status",
         icon="mdi:window-shutter",
-        device_class=SensorDeviceClass.ENUM,
-        options=["open", "closed"],
-        value_fn=lambda s: s.cover_state,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda s: s.cover_status_raw,
     ),
 )
 

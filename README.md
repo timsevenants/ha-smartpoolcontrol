@@ -1,20 +1,19 @@
-# Smart Pool Control – Home Assistant integration
+# Smart Pool Connect – Home Assistant integration
 
-Unofficial Home Assistant custom integration for pools managed through the
-**Smart Pool Control** owner portal (`owner.smartpoolcontrol.eu`), by Europe
-Pool Supplies B.V.
+Unofficial Home Assistant custom integration for pools managed through
+**Smart Pool Connect** (`smartpoolconnect.eu`), by Europe Pool Supplies B.V.
 
-The portal has no public API, so this integration logs in with your owner
-credentials, keeps a session and scrapes the measurements page / submits the
-existing web forms. It is **not affiliated with or endorsed by** Europe Pool
-Supplies / Smart Pool Control.
+The vendor decommissioned the old `owner.smartpoolcontrol.eu` owner portal and
+moved to a modern REST API at `api.smartpoolconnect.eu`. This integration talks
+to that API using an **API key** you generate in the web portal. It is **not
+affiliated with or endorsed by** Europe Pool Supplies / Smart Pool Connect.
 
-> ⚠️ **Pool cover safety.** The cover entity can open and close the pool deck
-> remotely. The web portal only lets you do this when your phone is within
-> 100 m and warns that you must have *direct line of sight* of the cover.
-> Home Assistant cannot verify either. The cover entity is therefore
-> **disabled by default**. Only enable and automate it if you have another
-> reliable way to guarantee the pool area is clear. Use at your own risk.
+> ⚠️ **Pool cover safety.** This integration deliberately **does not** move the
+> pool cover/deck. The API can open/close the deck (`POST /pool/{pid}/cmd/…`),
+> but a moving cover can trap a person or animal and cannot be observed from
+> Home Assistant — the vendor's own app enforces a "within 100 m, direct line
+> of sight" rule for this reason. The cover is exposed **read-only** as a
+> diagnostic status sensor only.
 
 ## Features
 
@@ -22,58 +21,61 @@ Supplies / Smart Pool Control.
 - pH (and pH target)
 - Redox / ORP "Rx" in mV (and target)
 - Water temperature (and target)
-- Outside temperature
+- Outside / ambient temperature
 - Solar temperature (if your installation has the sensor)
-- Pump speed (off / low / medium / high / maximum)
-- Cover state (open / closed)
+- Pump speed (off / low / medium / high)
+- Cover status (diagnostic, raw code — read-only)
 
 ### Binary sensors
-- Heating on/off
-- Pool online/offline (connectivity)
+- Pool online / offline (connectivity)
+- Pump running
 
 ### Controls
 - **Numbers:** pH target (6.8–7.6), Redox target (0–999 mV), water temperature target
 - **Switches:** lighting, frost protection, pump force-on
-- **Selects:** pump speed (filter schedule 1), lighting program (9 modes)
-- **Cover:** open / close / stop the pool deck *(disabled by default — see warning above)*
+- **Select:** pump speed (off / low / medium / high)
 
 ## Installation
 
 ### HACS (custom repository)
 1. HACS → ⋮ → *Custom repositories*.
 2. Add `https://github.com/timsevenants/ha-smartpoolcontrol`, category *Integration*.
-3. Install **Smart Pool Control**, then restart Home Assistant.
+3. Install **Smart Pool Connect**, then restart Home Assistant.
 
 ### Manual
 Copy `custom_components/smartpoolcontrol` into your Home Assistant
 `config/custom_components/` directory and restart.
 
 ## Configuration
-*Settings → Devices & Services → Add Integration → Smart Pool Control* and
-enter the same e-mail and password you use on the portal. The pool is
-discovered automatically.
+1. In the Smart Pool Connect web portal, open **API Keys** and generate a key
+   (it starts with `spc_`).
+2. *Settings → Devices & Services → Add Integration → Smart Pool Connect* and
+   paste the API key. If the key grants access to more than one pool you'll be
+   asked which one; otherwise the pool is added automatically.
 
-## How it works (reverse-engineering notes)
-The portal is a Django app. The integration:
-1. `GET /login/` to read the CSRF token, then `POST /login/`
-   (`csrfmiddlewaretoken`, `username`, `password`) with a matching `Referer`.
-2. `GET /` redirects to `/pools/measurements/<pool_id>/` → that's how the pool
-   id is discovered.
-3. Status is parsed from `/pools/measurements/<pool_id>/`.
-4. Controls map to the portal's own endpoints/forms:
-   - Lighting toggle: `GET /pools/lighting_toggle/<id>/`
-   - Cover: `GET /pools/settings/<id>/deck_open|deck_close|deck_stop`
-   - Setpoints/options: `POST /pools/settings/<id>/{ph,rx,temperaturegeneral,filtergeneral,filterschedule1,lighting}`
-     (the integration re-submits the full Django formset, only changing the
-     relevant field).
+## How it works
+The integration polls `GET /pool/{pid}` every couple of minutes and parses each
+module (`ph`, `cl`, `filter`, `lighting`, `cover`, `temperature`). Control is a
+`PATCH /pool/{pid}/{module}` carrying only the changed field(s) at the top level
+(there is no `config` envelope). The exact payloads were confirmed against the
+live API:
 
-Because it scrapes HTML, a portal redesign may break parsing. `scripts/probe.sh`
-helps re-inspect the structure (read-only).
+| Action | Endpoint | Body |
+| --- | --- | --- |
+| pH / water target | `PATCH …/ph`, `…/temperature` | `{"target": <v>}` |
+| Redox target | `PATCH …/cl` | `{"target": <v>}` (flat; reads back at `config.rx.target`) |
+| Frost protection | `PATCH …/temperature` | `{"frost_protection": <bool>, "target": <current>}` |
+| Lighting on/off | `PATCH …/lighting` | `{"always_active": <bool>}` |
+| Pump force / speed | `PATCH …/filter` | the whole `filter.config` struct, one field changed |
+
+Momentary actions (cover open/stop/close, backwash, shock, lighting cycle) live
+under `POST /pool/{pid}/cmd/{command}`; only the safe, non-cover ones would ever
+be considered. `scripts/probe.sh` performs read-only `GET`s for debugging.
 
 ## Disclaimer
-Provided "as is", without warranty. Automating pool chemistry, heating and
-especially the cover carries real-world risk. You are responsible for safe and
-lawful operation of your pool.
+Provided "as is", without warranty. Automating pool chemistry and heating
+carries real-world risk. You are responsible for safe and lawful operation of
+your pool.
 
 ## License
 MIT — see [LICENSE](LICENSE).

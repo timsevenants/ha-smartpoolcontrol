@@ -1,43 +1,34 @@
-"""Constants for the Smart Pool Control integration."""
+"""Constants for the Smart Pool Connect integration."""
 
 from __future__ import annotations
 
 DOMAIN = "smartpoolcontrol"
 
-# Default base URL of the owner web portal.
-DEFAULT_BASE_URL = "https://owner.smartpoolcontrol.eu"
+# Base URL of the Smart Pool Connect REST API (api.smartpoolconnect.eu).
+# The legacy owner.smartpoolcontrol.eu portal has been decommissioned; the
+# vendor migrated to a modern OAuth2 + JSON API backend.
+DEFAULT_BASE_URL = "https://api.smartpoolconnect.eu"
 
+CONF_API_KEY = "api_key"
 CONF_BASE_URL = "base_url"
-CONF_POOL_ID = "pool_id"
+CONF_POOL_ID = "pool_id"  # the API's pool UUID ("pid")
 CONF_POOL_NAME = "pool_name"
 CONF_POOL_MAC = "pool_mac"
 
-# How often the coordinator polls the portal (seconds). The portal itself
-# refreshes roughly every 2 minutes, so polling much faster is pointless.
+# How often the coordinator polls the API (seconds). The device reports every
+# couple of minutes, so polling much faster is pointless.
 DEFAULT_SCAN_INTERVAL = 120
 
-MANUFACTURER = "Europe Pool Supplies B.V. (Smart Pool Control)"
+MANUFACTURER = "Europe Pool Supplies B.V. (Smart Pool Connect)"
 
-# Pump speed values used by the filter schedule forms.
-PUMP_SPEEDS: dict[int, str] = {
-    0: "off",
-    1: "low",
-    2: "medium",
-    3: "high",
-    4: "maximum",
-}
-PUMP_SPEEDS_REVERSE = {v: k for k, v in PUMP_SPEEDS.items()}
+# Module sub-resources under /pool/{pid}/ that expose GET + PATCH.
+MODULE_PH = "ph"
+MODULE_CL = "cl"
+MODULE_FILTER = "filter"
+MODULE_LIGHTING = "lighting"
+MODULE_COVER = "cover"
+MODULE_TEMPERATURE = "temperature"
 
-# Lighting program configurations exposed by the lighting settings form.
-LIGHTING_MODES: dict[int, str] = {
-    0: "Single Colour",
-    1: "Rotating RGB",
-    2: "STL-RGB",
-    3: "Adagio",
-    4: "Adagio tw",
-    5: "Allegro",
-    6: "Spectra",
-    7: "Spectra tw",
-    8: "plp rem",
-}
-LIGHTING_MODES_REVERSE = {v: k for k, v in LIGHTING_MODES.items()}
+# Pump speed values accepted by the filter config (config.pump_speed is a
+# string). Extend if the controller exposes more steps.
+PUMP_SPEEDS: tuple[str, ...] = ("off", "low", "medium", "high")

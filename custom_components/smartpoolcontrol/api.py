@@ -1,56 +1,54 @@
-"""Async client for the Smart Pool Control owner portal.
+"""Async client for the Smart Pool Connect REST API.
 
-The portal (owner.smartpoolcontrol.eu) is a Django web application with no
-documented API. This client logs in with the owner's e-mail/password, keeps a
-session cookie, scrapes the measurements page for status and submits the
-existing Django forms / toggle endpoints to control the pool.
+The vendor migrated from the legacy ``owner.smartpoolcontrol.eu`` Django portal
+(which this integration used to scrape) to a modern JSON API at
+``api.smartpoolconnect.eu``. Authentication is an API key ("X-API-Key", prefix
+``spc_``) which the owner/poolbuilder generates in the web portal under
+*API Keys*.
 
-The client is intentionally self-contained (only depends on ``aiohttp``) so it
-can be exercised outside Home Assistant as well.
+Reading is a single ``GET /pool/{pid}`` returning every module. Control is a
+``PATCH /pool/{pid}/{module}`` whose body is the changed field(s) at the top
+level -- there is NO ``{"config": ...}`` envelope (that returns HTTP 500) and
+the field names do not always mirror the read shape. The exact per-module
+payloads were confirmed against the live API:
+
+* ``ph`` / ``cl`` / ``temperature`` accept a partial update, e.g. ``{"target": v}``.
+  Note ``cl`` writes ``{"target": v}`` flat even though it reads back under
+  ``config.rx.target``.
+* ``temperature.frost_protection`` is rejected on its own (HTTP 500); it must be
+  sent together with ``target``.
+* ``lighting`` accepts ``{"always_active": bool}``.
+* ``filter`` is an untagged enum: a partial body never matches a variant
+  (HTTP 422), so the *whole* config struct (``always_active`` + ``pump_speed`` +
+  ``schedule_1/2/3``) must be read, mutated and sent back.
+
+Momentary actions (cover open/stop/close, backwash, shock, lighting cycle) use a
+separate ``POST /pool/{pid}/cmd/{command}`` endpoint. Cover motion is
+intentionally NOT implemented here for safety; the cover is read-only.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
-from html import unescape
 from typing import Any
 
 import aiohttp
 
+from .const import (
+    MODULE_CL,
+    MODULE_FILTER,
+    MODULE_LIGHTING,
+    MODULE_PH,
+    MODULE_TEMPERATURE,
+)
+
 _LOGGER = logging.getLogger(__name__)
-
-# Regex helpers ------------------------------------------------------------
-
-_CSRF_INPUT_RE = re.compile(
-    r'name="csrfmiddlewaretoken"\s+value="([^"]+)"'
-)
-_REDIRECT_POOL_RE = re.compile(r"/pools/measurements/(\d+)/")
-_POOL_HEADER_RE = re.compile(
-    r"Pool:\s*(?P<name>.+?)\s*\((?P<mac>[0-9A-Fa-f:]{17})\)"
-)
-
-
-def _num(text: str | None) -> float | None:
-    """Parse the first number in *text* (handles ``7.10``, ``692.0``...)."""
-    if not text:
-        return None
-    match = re.search(r"-?\d+(?:\.\d+)?", text.replace(",", "."))
-    return float(match.group(0)) if match else None
-
-
-def _section(html: str, start: str, length: int = 800) -> str:
-    """Return a slice of *html* starting at marker *start* (for scoping)."""
-    idx = html.find(start)
-    if idx == -1:
-        return ""
-    return html[idx : idx + length]
 
 
 @dataclass
 class PoolStatus:
-    """Parsed snapshot of the measurements page."""
+    """Parsed snapshot of a pool from ``GET /pool/{pid}``."""
 
     online: bool = True
     name: str | None = None
@@ -60,15 +58,21 @@ class PoolStatus:
     ph_target: float | None = None
     rx: float | None = None
     rx_target: float | None = None
+
     water_temperature: float | None = None
     water_temperature_target: float | None = None
     outside_temperature: float | None = None
     solar_temperature: float | None = None
+    frost_protection: bool | None = None
 
-    heating_on: bool | None = None
-    cover_state: str | None = None  # "open" / "closed" / raw text
-    pump_speed: str | None = None  # off/low/medium/high/maximum
+    pump_speed: str | None = None  # configured speed: off/low/medium/high
+    pump_force: bool | None = None  # filter "always active"
+    pump_running: bool | None = None
+
     lighting_on: bool | None = None
+
+    cover_state: str | None = None  # "open"/"closed" once mapping is known
+    cover_status_raw: int | None = None
 
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -78,30 +82,35 @@ class SmartPoolControlError(Exception):
 
 
 class AuthenticationError(SmartPoolControlError):
-    """Raised when login fails."""
+    """Raised when the API key is rejected."""
+
+
+def _get(data: Any, *path: str, default: Any = None) -> Any:
+    """Safely walk a nested dict/list by keys, returning *default* on miss."""
+    cur = data
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return cur
 
 
 class SmartPoolControlClient:
-    """Talks to the Smart Pool Control owner portal."""
+    """Talks to the Smart Pool Connect REST API using an API key."""
 
     def __init__(
         self,
-        username: str,
-        password: str,
+        api_key: str,
         *,
         base_url: str,
         session: aiohttp.ClientSession | None = None,
         pool_id: str | None = None,
     ) -> None:
-        self._username = username
-        self._password = password
+        self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self.pool_id = pool_id
         self._owns_session = session is None
-        # A dedicated cookie jar is required to hold the Django session cookie.
-        self._session = session or aiohttp.ClientSession(
-            cookie_jar=aiohttp.CookieJar()
-        )
+        self._session = session or aiohttp.ClientSession()
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -115,342 +124,129 @@ class SmartPoolControlClient:
     async def __aexit__(self, *exc: object) -> None:
         await self.close()
 
-    # -- low level helpers -------------------------------------------------
+    # -- low level ---------------------------------------------------------
 
     def _url(self, path: str) -> str:
-        if path.startswith("http"):
-            return path
         return f"{self._base_url}/{path.lstrip('/')}"
 
-    def _csrf_cookie(self) -> str | None:
-        for cookie in self._session.cookie_jar:
-            if cookie.key == "csrftoken":
-                return cookie.value
-        return None
-
-    async def _get_text(self, path: str, **kwargs: Any) -> tuple[str, str]:
-        """GET *path*; return (final_url, text)."""
-        async with self._session.get(
-            self._url(path), allow_redirects=True, **kwargs
-        ) as resp:
-            text = await resp.text()
-            return str(resp.url), text
-
-    # -- authentication ----------------------------------------------------
-
-    async def async_login(self) -> None:
-        """Authenticate against the portal and discover the pool id."""
-        login_url = self._url("/login/")
-        async with self._session.get(login_url) as resp:
-            page = await resp.text()
-
-        match = _CSRF_INPUT_RE.search(page)
-        if not match:
-            raise SmartPoolControlError("Could not find CSRF token on login page")
-        token = match.group(1)
-
-        data = {
-            "csrfmiddlewaretoken": token,
-            "username": self._username,
-            "password": self._password,
-        }
-        # Django requires a matching Referer for HTTPS POSTs.
-        async with self._session.post(
-            login_url,
-            data=data,
-            headers={"Referer": login_url},
-            allow_redirects=False,
-        ) as resp:
-            location = resp.headers.get("Location", "")
-            if resp.status != 302 or location.rstrip("/").endswith("login"):
-                raise AuthenticationError("Invalid e-mail or password")
-
-        # The root URL redirects to /pools/measurements/<id>/ once logged in.
-        if not self.pool_id:
-            final_url, _ = await self._get_text("/")
-            pid = _REDIRECT_POOL_RE.search(final_url)
-            if pid:
-                self.pool_id = pid.group(1)
-
-        if not self.pool_id:
-            raise SmartPoolControlError("Logged in but could not discover pool id")
-
-    async def _ensure_session(self) -> None:
-        """Re-login if the session cookie has expired."""
-        for cookie in self._session.cookie_jar:
-            if cookie.key == "sessionid":
-                return
-        await self.async_login()
+    async def _request(
+        self, method: str, path: str, *, json: Any | None = None
+    ) -> Any:
+        headers = {"X-API-Key": self._api_key, "Accept": "application/json"}
+        try:
+            async with self._session.request(
+                method, self._url(path), json=json, headers=headers
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise AuthenticationError(
+                        f"API key rejected (HTTP {resp.status})"
+                    )
+                if resp.status >= 400:
+                    body = await resp.text()
+                    raise SmartPoolControlError(
+                        f"{method} {path} failed: HTTP {resp.status} {body[:200]}"
+                    )
+                if resp.status == 204 or not resp.content_length:
+                    # PATCH may return an empty body; fall through to text check.
+                    text = await resp.text()
+                    if not text:
+                        return None
+                    return await resp.json(content_type=None)
+                return await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise SmartPoolControlError(str(err)) from err
 
     # -- reading -----------------------------------------------------------
 
+    async def async_list_pools(self) -> list[dict[str, Any]]:
+        """Return the pools accessible to this API key."""
+        data = await self._request("GET", "/pool")
+        items = data.get("items") if isinstance(data, dict) else data
+        return items or []
+
     async def async_get_status(self) -> PoolStatus:
-        """Fetch and parse the measurements page."""
-        await self._ensure_session()
-        path = f"/pools/measurements/{self.pool_id}/"
-        final_url, html = await self._get_text(path)
-
-        # Redirected back to login -> session died, retry once.
-        if "/login" in final_url:
-            await self.async_login()
-            _, html = await self._get_text(path)
-
-        return self._parse_status(html)
+        """Fetch and parse the full pool state."""
+        if not self.pool_id:
+            raise SmartPoolControlError("No pool id configured")
+        data = await self._request("GET", f"/pool/{self.pool_id}")
+        return self._parse_status(data)
 
     @staticmethod
-    def _parse_status(html: str) -> PoolStatus:
-        status = PoolStatus()
+    def _parse_status(data: dict[str, Any]) -> PoolStatus:
+        status = PoolStatus(raw=data)
+        status.online = data.get("status") == "online"
+        status.name = data.get("name")
+        status.mac = (data.get("mac_address") or "").upper() or None
 
-        header = _POOL_HEADER_RE.search(html)
-        if header:
-            status.name = unescape(header.group("name")).strip()
-            status.mac = header.group("mac").upper()
+        status.ph = _get(data, "ph", "metrics", "actual")
+        ph_target = _get(data, "ph", "config", "target")
+        status.ph_target = round(ph_target, 2) if ph_target is not None else None
 
-        # The portal injects a "POOL OFFLINE" script block only when offline.
-        status.online = 'text("POOL OFFLINE")' not in html
+        status.rx = _get(data, "cl", "metrics", "actual")
+        status.rx_target = _get(data, "cl", "config", "rx", "target")
 
-        # pH ---------------------------------------------------------------
-        ph_card = _section(html, 'id="card_PH"')
-        m = re.search(r"/ph\"[^>]*>\s*([\d.]+)", ph_card)
-        status.ph = _num(m.group(1)) if m else None
-        m = re.search(r"Target:\s*([\d.]+)", ph_card)
-        status.ph_target = _num(m.group(1)) if m else None
+        water = _get(data, "temperature", "metrics", "water_temp")
+        status.water_temperature = round(water, 1) if water is not None else None
+        outside = _get(data, "temperature", "metrics", "ambient_temp")
+        status.outside_temperature = round(outside, 1) if outside is not None else None
+        status.water_temperature_target = _get(data, "temperature", "config", "target")
+        status.frost_protection = _get(
+            data, "temperature", "config", "frost_protection"
+        )
 
-        # Rx / Redox -------------------------------------------------------
-        rx_card = _section(html, 'id="card_RX"')
-        m = re.search(r"/rx\"[^>]*>\s*([\d.]+)", rx_card)
-        status.rx = _num(m.group(1)) if m else None
-        m = re.search(r"Target:\s*([\d.]+)", rx_card)
-        status.rx_target = _num(m.group(1)) if m else None
+        status.pump_speed = _get(data, "filter", "config", "pump_speed")
+        status.pump_force = _get(data, "filter", "config", "always_active")
+        actual_speed = _get(data, "filter", "metrics", "pump_speed")
+        status.pump_running = bool(actual_speed) if actual_speed is not None else None
 
-        # Temperatures -----------------------------------------------------
-        water = _section(html, ">Water<")
-        status.water_temperature = _temp_from(water)
-        m = re.search(r"Target:\s*([\d.]+)", water)
-        status.water_temperature_target = _num(m.group(1)) if m else None
+        light_state = _get(data, "lighting", "status", "status")
+        status.lighting_on = bool(light_state) if light_state is not None else None
 
-        outside = _section(html, ">Buiten<")
-        status.outside_temperature = _temp_from(outside)
-
-        solar = _section(html, ">Solar<")
-        status.solar_temperature = _temp_from(solar)
-
-        # Heating ----------------------------------------------------------
-        m = re.search(r"Heating\s+(on|off)", html, re.IGNORECASE)
-        if m:
-            status.heating_on = m.group(1).lower() == "on"
-
-        # Cover / deck -----------------------------------------------------
-        m = re.search(r"/deckcontrol\"[^>]*>([^<]+)</a>", html)
-        if m:
-            txt = unescape(m.group(1)).strip().lower()
-            if "closed" in txt or "dicht" in txt:
-                status.cover_state = "closed"
-            elif "open" in txt:
-                status.cover_state = "open"
-            else:
-                status.cover_state = txt
-
-        # Pump speed -------------------------------------------------------
-        m = re.search(r"/filtermenu\"[^>]*>([^<]+)</a>", html)
-        if m:
-            txt = unescape(m.group(1)).strip().lower()
-            for speed in ("off", "low", "medium", "high", "maximum"):
-                if speed in txt:
-                    status.pump_speed = speed
-                    break
-
-        # Lighting ---------------------------------------------------------
-        light = _section(html, 'id="lighting_status"', 400)
-        if "fa-toggle-on" in light:
-            status.lighting_on = True
-        elif "fa-toggle-off" in light:
-            status.lighting_on = False
-
+        status.cover_status_raw = _get(data, "cover", "status", "status")
         return status
 
-    # -- writing -----------------------------------------------------------
+    # -- writing (PATCH the changed field(s), no envelope) -----------------
 
-    async def _toggle(self, path: str) -> None:
-        await self._ensure_session()
-        url = self._url(path)
-        async with self._session.get(
-            url, headers={"Referer": self._url(f"/pools/measurements/{self.pool_id}/")}
-        ) as resp:
-            if resp.status >= 400:
-                raise SmartPoolControlError(f"Toggle {path} failed: HTTP {resp.status}")
+    async def _patch_module(self, module: str, body: dict[str, Any]) -> None:
+        """PATCH a module with *body* as the raw JSON (no ``config`` wrapper)."""
+        await self._request(
+            "PATCH", f"/pool/{self.pool_id}/{module}", json=body
+        )
 
-    async def async_toggle_lighting(self) -> None:
-        await self._toggle(f"/pools/lighting_toggle/{self.pool_id}/")
-
-    async def async_cover_open(self) -> None:
-        await self._toggle(f"/pools/settings/{self.pool_id}/deck_open")
-
-    async def async_cover_close(self) -> None:
-        await self._toggle(f"/pools/settings/{self.pool_id}/deck_close")
-
-    async def async_cover_stop(self) -> None:
-        await self._toggle(f"/pools/settings/{self.pool_id}/deck_stop")
-
-    async def _post_settings(
-        self,
-        page: str,
-        *,
-        marker: str,
-        overrides: dict[str, str] | None = None,
-        remove: set[str] | None = None,
-    ) -> None:
-        """Submit a Django settings form, preserving existing field values.
-
-        Fetches the settings page, scrapes the form identified by *marker*
-        (the formset prefix, e.g. ``settings_ph``), applies *overrides*,
-        removes any field names in *remove* (used to uncheck checkboxes) and
-        POSTs everything back together with the management form.
-        """
-        await self._ensure_session()
-        url = self._url(f"/pools/settings/{self.pool_id}/{page}")
-        async with self._session.get(url) as resp:
-            html = await resp.text()
-
-        form_html = _extract_form(html, marker)
-        if not form_html:
-            raise SmartPoolControlError(f"Could not locate form on {page}")
-
-        fields = _form_fields(form_html)
-        for name in remove or set():
-            fields.pop(name, None)
-        fields.update(overrides or {})
-        token = self._csrf_cookie()
-        if token:
-            fields["csrfmiddlewaretoken"] = token
-
-        async with self._session.post(
-            url,
-            data=fields,
-            headers={"Referer": url},
-            allow_redirects=False,
-        ) as resp:
-            if resp.status >= 400:
-                raise SmartPoolControlError(f"Saving {page} failed: HTTP {resp.status}")
-
-    # Convenience setters --------------------------------------------------
+    async def _get_module_config(self, module: str) -> dict[str, Any]:
+        """Return a module's current ``config`` object."""
+        data = await self._request("GET", f"/pool/{self.pool_id}/{module}")
+        return dict(data.get("config") or {})
 
     async def async_set_ph_target(self, value: float) -> None:
-        await self._post_settings(
-            "ph",
-            marker="settings_ph",
-            overrides={"settings_ph-0-ph_value_target": str(value)},
-        )
+        await self._patch_module(MODULE_PH, {"target": value})
 
     async def async_set_rx_target(self, value: float) -> None:
-        await self._post_settings(
-            "rx",
-            marker="settings_rx",
-            overrides={"settings_rx-0-rx_value_target": str(value)},
-        )
+        # cl accepts the setpoint flat, even though it reads back at config.rx.target.
+        await self._patch_module(MODULE_CL, {"target": value})
 
     async def async_set_water_target(self, value: float) -> None:
-        await self._post_settings(
-            "temperaturegeneral",
-            marker="settings_temperature",
-            overrides={"settings_temperature-0-temperature_water_target": str(value)},
-        )
+        await self._patch_module(MODULE_TEMPERATURE, {"target": value})
 
     async def async_set_frost_protection(self, enabled: bool) -> None:
-        field = "settings_temperature-0-temperature_frost_protection"
-        if enabled:
-            await self._post_settings(
-                "temperaturegeneral",
-                marker="settings_temperature",
-                overrides={field: "on"},
-            )
-        else:
-            await self._post_settings(
-                "temperaturegeneral", marker="settings_temperature", remove={field}
-            )
+        # frost_protection alone is rejected (HTTP 500); it must ride along with
+        # the current target, so read that first.
+        config = await self._get_module_config(MODULE_TEMPERATURE)
+        body: dict[str, Any] = {"frost_protection": enabled}
+        if config.get("target") is not None:
+            body["target"] = config["target"]
+        await self._patch_module(MODULE_TEMPERATURE, body)
 
     async def async_set_pump_force(self, enabled: bool) -> None:
-        field = "settings_filter-0-filter_pump_force_on"
-        if enabled:
-            await self._post_settings(
-                "filtergeneral", marker="settings_filter", overrides={field: "on"}
-            )
-        else:
-            await self._post_settings(
-                "filtergeneral", marker="settings_filter", remove={field}
-            )
+        # filter is an untagged enum: send the whole config struct back.
+        config = await self._get_module_config(MODULE_FILTER)
+        config["always_active"] = enabled
+        await self._patch_module(MODULE_FILTER, config)
 
-    async def async_set_lighting_mode(self, mode: int) -> None:
-        await self._post_settings(
-            "lighting",
-            marker="settings_lighting",
-            overrides={"settings_lighting-0-lighting_configuration": str(mode)},
-        )
+    async def async_set_pump_speed(self, speed: str) -> None:
+        config = await self._get_module_config(MODULE_FILTER)
+        config["pump_speed"] = speed
+        await self._patch_module(MODULE_FILTER, config)
 
-    async def async_set_pump_speed(self, speed: int, schedule: int = 1) -> None:
-        field = f"settings_filterschedule{schedule}-0-filterschedule{schedule}_pump_speed"
-        await self._post_settings(
-            f"filterschedule{schedule}",
-            marker=f"settings_filterschedule{schedule}",
-            overrides={field: str(speed)},
-        )
-
-
-# -- module level HTML helpers --------------------------------------------
-
-
-def _temp_from(section: str) -> float | None:
-    """Extract a temperature value from a measurement card section."""
-    m = re.search(r"h5[^>]*>\s*([\d.]+)\s*(?:&deg;|\xb0)?C", section)
-    if not m:
-        # value may be wrapped differently; fall back to first number before C
-        m = re.search(r"([\d.]+)\s*(?:&deg;|\xb0)?C", section)
-    return _num(m.group(1)) if m else None
-
-
-def _extract_form(html: str, contains_name: str) -> str | None:
-    """Return the <form>...</form> block that contains *contains_name*."""
-    for match in re.finditer(r"<form[^>]*>(.*?)</form>", html, re.DOTALL | re.IGNORECASE):
-        block = match.group(0)
-        if contains_name.split("-")[0] in block or contains_name in block:
-            return block
-    return None
-
-
-def _attr(tag: str, name: str) -> str | None:
-    m = re.search(rf'{name}\s*=\s*"([^"]*)"', tag)
-    return m.group(1) if m else None
-
-
-def _form_fields(form_html: str) -> dict[str, str]:
-    """Collect current name=value pairs from a form (Django convention).
-
-    Checkboxes are only included when ``checked``. Selects use the selected
-    option. The special override sentinel ``__keep__`` is stripped by the
-    caller via dict.update afterwards.
-    """
-    fields: dict[str, str] = {}
-
-    for tag in re.findall(r"<input[^>]*>", form_html, re.IGNORECASE):
-        name = _attr(tag, "name")
-        if not name or name == "csrfmiddlewaretoken":
-            continue
-        input_type = (_attr(tag, "type") or "text").lower()
-        if input_type == "checkbox":
-            if "checked" in tag.lower():
-                fields[name] = "on"
-            continue
-        if input_type == "submit":
-            continue
-        fields[name] = unescape(_attr(tag, "value") or "")
-
-    for sel in re.finditer(r"<select[^>]*>(.*?)</select>", form_html, re.DOTALL | re.IGNORECASE):
-        name = _attr(sel.group(0), "name")
-        if not name:
-            continue
-        opt = re.search(r'<option[^>]*value="([^"]*)"[^>]*selected', sel.group(1))
-        if not opt:
-            opt = re.search(r'<option[^>]*value="([^"]*)"', sel.group(1))
-        fields[name] = opt.group(1) if opt else ""
-
-    return fields
+    async def async_set_lighting(self, on: bool) -> None:
+        await self._patch_module(MODULE_LIGHTING, {"always_active": on})

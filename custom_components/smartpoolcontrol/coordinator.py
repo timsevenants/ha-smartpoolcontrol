@@ -1,4 +1,4 @@
-"""Data update coordinator for Smart Pool Control."""
+"""Data update coordinator for Smart Pool Connect."""
 
 from __future__ import annotations
 
@@ -7,16 +7,22 @@ from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import PoolStatus, SmartPoolControlClient, SmartPoolControlError
+from .api import (
+    AuthenticationError,
+    PoolStatus,
+    SmartPoolControlClient,
+    SmartPoolControlError,
+)
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class SmartPoolControlCoordinator(DataUpdateCoordinator[PoolStatus]):
-    """Polls the portal and shares the parsed status with all entities."""
+    """Polls the API and shares the parsed status with all entities."""
 
     def __init__(
         self,
@@ -36,5 +42,7 @@ class SmartPoolControlCoordinator(DataUpdateCoordinator[PoolStatus]):
     async def _async_update_data(self) -> PoolStatus:
         try:
             return await self.client.async_get_status()
+        except AuthenticationError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
         except SmartPoolControlError as err:
             raise UpdateFailed(str(err)) from err

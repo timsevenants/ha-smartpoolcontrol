@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SmartPoolConfigEntry
 from .api import PoolStatus, SmartPoolControlClient
-from .entity import SmartPoolEntity
+from .entity import SmartPoolControllableEntity
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -79,7 +79,7 @@ async def async_setup_entry(
     )
 
 
-class SmartPoolNumber(SmartPoolEntity, NumberEntity):
+class SmartPoolNumber(SmartPoolControllableEntity, NumberEntity):
     """A writable target value."""
 
     entity_description: SmartPoolNumberDescription
@@ -93,5 +93,6 @@ class SmartPoolNumber(SmartPoolEntity, NumberEntity):
         return self.entity_description.value_fn(self.coordinator.data)
 
     async def async_set_native_value(self, value: float) -> None:
+        self._check_online()
         await self.entity_description.set_fn(self.coordinator.client, value)
         await self.coordinator.async_request_refresh()

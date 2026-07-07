@@ -2,18 +2,25 @@
   "config": {
     "step": {
       "user": {
-        "title": "Smart Pool Control",
-        "description": "Log in with the e-mail and password you use on owner.smartpoolcontrol.eu.",
+        "title": "Smart Pool Connect",
+        "description": "Enter an API key from the Smart Pool Connect portal (smartpoolconnect.eu → API Keys). Keys start with `spc_`.",
         "data": {
-          "username": "E-mail",
-          "password": "Password",
-          "base_url": "Portal URL"
+          "api_key": "API key",
+          "base_url": "API URL"
+        }
+      },
+      "select_pool": {
+        "title": "Select pool",
+        "description": "This API key gives access to more than one pool.",
+        "data": {
+          "pool_id": "Pool"
         }
       }
     },
     "error": {
-      "invalid_auth": "Invalid e-mail or password.",
-      "cannot_connect": "Could not connect to the portal.",
+      "invalid_auth": "The API key was rejected.",
+      "cannot_connect": "Could not connect to the Smart Pool Connect API.",
+      "no_pools": "This API key has no pools.",
       "unknown": "Unexpected error."
     },
     "abort": {
@@ -35,18 +42,14 @@
           "off": "Off",
           "low": "Low",
           "medium": "Medium",
-          "high": "High",
-          "maximum": "Maximum"
+          "high": "High"
         }
       },
-      "cover_state": {
-        "name": "Cover",
-        "state": { "open": "Open", "closed": "Closed" }
-      }
+      "cover_status": { "name": "Cover status (raw)" }
     },
     "binary_sensor": {
-      "heating": { "name": "Heating" },
-      "online": { "name": "Online" }
+      "online": { "name": "Online" },
+      "pump_running": { "name": "Pump running" }
     },
     "number": {
       "ph_target": { "name": "pH target" },
@@ -56,14 +59,10 @@
     "switch": {
       "lighting": { "name": "Lighting" },
       "frost_protection": { "name": "Frost protection" },
-      "pump_force_on": { "name": "Pump force on" }
+      "pump_force_on": { "name": "Pump always on" }
     },
     "select": {
-      "pump_speed": { "name": "Pump speed (schedule 1)" },
-      "lighting_mode": { "name": "Lighting program" }
-    },
-    "cover": {
-      "cover": { "name": "Pool cover" }
+      "pump_speed": { "name": "Pump speed" }
     }
   }
 }
