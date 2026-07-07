@@ -63,6 +63,11 @@
     },
     "select": {
       "pump_speed": { "name": "Pump speed" }
+    },
+    "button": {
+      "cover_open": { "name": "Cover open" },
+      "cover_stop": { "name": "Cover stop" },
+      "cover_close": { "name": "Cover close" }
     }
   }
 }

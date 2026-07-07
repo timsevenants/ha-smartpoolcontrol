@@ -32,3 +32,10 @@ MODULE_TEMPERATURE = "temperature"
 # Pump speed values accepted by the filter config (config.pump_speed is a
 # string). Extend if the controller exposes more steps.
 PUMP_SPEEDS: tuple[str, ...] = ("off", "low", "medium", "high")
+
+# Momentary cover commands (POST /pool/{pid}/cmd/{command}, no body).
+# SAFETY: these move the physical cover/deck -- exposed only as opt-in,
+# disabled-by-default buttons for on-site use. See button.py.
+CMD_COVER_OPEN = "cover_open"
+CMD_COVER_STOP = "cover_stop"
+CMD_COVER_CLOSE = "cover_close"

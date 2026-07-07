@@ -63,6 +63,11 @@
     },
     "select": {
       "pump_speed": { "name": "Pompsnelheid" }
+    },
+    "button": {
+      "cover_open": { "name": "Luik openen" },
+      "cover_stop": { "name": "Luik stoppen" },
+      "cover_close": { "name": "Luik sluiten" }
     }
   }
 }

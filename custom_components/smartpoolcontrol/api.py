@@ -253,3 +253,14 @@ class SmartPoolControlClient:
 
     async def async_set_lighting(self, on: bool) -> None:
         await self._patch_module(MODULE_LIGHTING, {"always_active": on})
+
+    # -- momentary commands ------------------------------------------------
+
+    async def async_send_command(self, command: str) -> None:
+        """Queue a one-off command (POST /pool/{pid}/cmd/{command}, no body).
+
+        Used for cover_open/cover_stop/cover_close. The pool applies it on its
+        next sync. Cover commands move the physical deck -- callers must gate
+        this behind deliberate, on-site user action (see button.py).
+        """
+        await self._request("POST", f"/pool/{self.pool_id}/cmd/{command}")

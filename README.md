@@ -8,12 +8,14 @@ moved to a modern REST API at `api.smartpoolconnect.eu`. This integration talks
 to that API using an **API key** you generate in the web portal. It is **not
 affiliated with or endorsed by** Europe Pool Supplies / Smart Pool Connect.
 
-> ⚠️ **Pool cover safety.** This integration deliberately **does not** move the
-> pool cover/deck. The API can open/close the deck (`POST /pool/{pid}/cmd/…`),
-> but a moving cover can trap a person or animal and cannot be observed from
-> Home Assistant — the vendor's own app enforces a "within 100 m, direct line
-> of sight" rule for this reason. The cover is exposed **read-only** as a
-> diagnostic status sensor only.
+> ⚠️ **Pool cover safety.** A moving cover/deck can trap a person or animal and
+> cannot be observed from Home Assistant — the vendor's own app enforces a
+> "within 100 m, direct line of sight" rule for this reason. Cover motion is
+> exposed only as **manual Open/Stop/Close buttons that are disabled by
+> default**: you must explicitly enable each button before it does anything.
+> Use them **on-site only, with the pool in clear view**, and do **not** wire
+> them into unattended automations. The read-only cover *status* sensor is
+> always available.
 
 ## Features
 
@@ -34,6 +36,7 @@ affiliated with or endorsed by** Europe Pool Supplies / Smart Pool Connect.
 - **Numbers:** pH target (6.8–7.6), Redox target (0–999 mV), water temperature target
 - **Switches:** lighting, frost protection, pump force-on
 - **Select:** pump speed (off / low / medium / high)
+- **Buttons:** cover open / stop / close — *disabled by default, on-site manual use only* (see safety note above)
 
 ## Installation
 
@@ -69,8 +72,9 @@ live API:
 | Pump force / speed | `PATCH …/filter` | the whole `filter.config` struct, one field changed |
 
 Momentary actions (cover open/stop/close, backwash, shock, lighting cycle) live
-under `POST /pool/{pid}/cmd/{command}`; only the safe, non-cover ones would ever
-be considered. `scripts/probe.sh` performs read-only `GET`s for debugging.
+under `POST /pool/{pid}/cmd/{command}`. Only the cover ones are surfaced, as the
+disabled-by-default buttons described above. `scripts/probe.sh` performs
+read-only `GET`s for debugging.
 
 ## Disclaimer
 Provided "as is", without warranty. Automating pool chemistry and heating
