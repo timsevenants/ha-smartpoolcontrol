@@ -94,12 +94,8 @@ class SmartPoolSwitch(SmartPoolControllableEntity, SwitchEntity):
     async def _set(self, on: bool) -> None:
         self._check_online()
         desc = self.entity_description
-        # The lighting endpoint only toggles, so avoid toggling when already
-        # in the requested state.
-        if desc.key == "lighting" and desc.value_fn is not None:
-            current = desc.value_fn(self.coordinator.data)
-            if current is on:
-                return
+        # The REST API sets state absolutely (config.always_active true/false),
+        # so this is idempotent -- no need to guard against re-sending.
         await desc.set_fn(self.coordinator.client, on)
         if desc.value_fn is None:
             self._optimistic = on

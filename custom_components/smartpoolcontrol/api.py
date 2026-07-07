@@ -199,8 +199,11 @@ class SmartPoolControlClient:
         actual_speed = _get(data, "filter", "metrics", "pump_speed")
         status.pump_running = bool(actual_speed) if actual_speed is not None else None
 
-        light_state = _get(data, "lighting", "status", "status")
-        status.lighting_on = bool(light_state) if light_state is not None else None
+        # The lighting switch drives config.always_active (force the light on),
+        # so reflect THAT as the switch state -- not lighting.status.status,
+        # which is the device's actual lamp state and lags a sync (and also
+        # follows schedules / momentary lighting_next commands).
+        status.lighting_on = _get(data, "lighting", "config", "always_active")
 
         status.cover_status_raw = _get(data, "cover", "status", "status")
         return status
